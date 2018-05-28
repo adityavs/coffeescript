@@ -142,7 +142,8 @@ test "#1192: assignment starting with object literals", ->
 # Destructuring Assignment
 
 test "empty destructuring assignment", ->
-  {} = [] = undefined
+  {} = {}
+  [] = []
 
 test "chained destructuring assignments", ->
   [a] = {0: b} = {'0': c} = [nonce={}]
@@ -177,9 +178,22 @@ test "#713: destructuring assignment should return right-hand-side value", ->
   eq nonceB, b
   eq nonceB, d
 
+test "#4787 destructuring of objects within arrays", ->
+  arr = [1, {a:1, b:2}]
+  [...,{a, b}] = arr
+  eq a, 1
+  eq b, arr[1].b
+  deepEqual {a, b}, arr[1]
+
 test "destructuring assignment with splats", ->
   a = {}; b = {}; c = {}; d = {}; e = {}
   [x,y...,z] = [a,b,c,d,e]
+  eq a, x
+  arrayEq [b,c,d], y
+  eq e, z
+
+  # Should not trigger implicit call, e.g. rest ... => rest(...)
+  [x,y ...,z] = [a,b,c,d,e]
   eq a, x
   arrayEq [b,c,d], y
   eq e, z
@@ -225,6 +239,11 @@ test "destructuring assignment with objects and splats", ->
   a={}; b={}; c={}; d={}
   obj = a: b: [a, b, c, d]
   {a: b: [y, z...]} = obj
+  eq a, y
+  arrayEq [b,c,d], z
+
+  # Should not trigger implicit call, e.g. rest ... => rest(...)
+  {a: b: [y, z ...]} = obj
   eq a, y
   arrayEq [b,c,d], z
 
@@ -305,7 +324,7 @@ test "simple array destructuring defaults", ->
   [a = 2] = [undefined]
   eq 2, a
   [a = 3] = [null]
-  eq 3, a
+  eq null, a # Breaking change in CS2: per ES2015, default values are applied for `undefined` but not for `null`.
   [a = 4] = [0]
   eq 0, a
   arr = [a = 5]
@@ -318,7 +337,7 @@ test "simple object destructuring defaults", ->
   {b = 2} = {b: undefined}
   eq b, 2
   {b = 3} = {b: null}
-  eq b, 3
+  eq b, null # Breaking change in CS2: per ES2015, default values are applied for `undefined` but not for `null`.
   {b = 4} = {b: 0}
   eq b, 0
 
@@ -327,17 +346,17 @@ test "simple object destructuring defaults", ->
   {b: c = 2} = {b: undefined}
   eq c, 2
   {b: c = 3} = {b: null}
-  eq c, 3
+  eq c, null # Breaking change in CS2: per ES2015, default values are applied for `undefined` but not for `null`.
   {b: c = 4} = {b: 0}
   eq c, 0
 
 test "multiple array destructuring defaults", ->
-  [a = 1, b = 2, c] = [null, 12, 13]
+  [a = 1, b = 2, c] = [undefined, 12, 13]
   eq a, 1
   eq b, 12
   eq c, 13
-  [a, b = 2, c = 3] = [null, 12, 13]
-  eq a, null
+  [a, b = 2, c = 3] = [undefined, 12, 13]
+  eq a, undefined
   eq b, 12
   eq c, 13
   [a = 1, b, c = 3] = [11, 12]
@@ -368,7 +387,7 @@ test "destructuring assignment with context (@) properties and defaults", ->
   a={}; b={}; c={}; d={}; e={}
   obj =
     fn: () ->
-      local = [a, {b, c: null}, d]
+      local = [a, {b, c: undefined}, d]
       [@a, {b: @b = b, @c = c}, @d, @e = e] = local
   eq undefined, obj[key] for key in ['a','b','c','d','e']
   obj.fn()
@@ -387,7 +406,7 @@ test "destructuring assignment with defaults single evaluation", ->
   [a = fn()] = [10]
   eq 10, a
   eq 1, callCount
-  {a = fn(), b: c = fn()} = {a: 20, b: null}
+  {a = fn(), b: c = fn()} = {a: 20, b: undefined}
   eq 20, a
   eq c, 1
   eq callCount, 2
@@ -449,7 +468,7 @@ test "#1591, #1101: splatted expressions in destructuring assignment must be ass
 
 test "#1643: splatted accesses in destructuring assignments should not be declared as variables", ->
   nonce = {}
-  accesses = ['o.a', 'o["a"]', '(o.a)', '(o.a).a', '@o.a', 'C::a', 'C::', 'f().a', 'o?.a', 'o?.a.b', 'f?().a']
+  accesses = ['o.a', 'o["a"]', '(o.a)', '(o.a).a', '@o.a', 'C::a', 'f().a', 'o?.a', 'o?.a.b', 'f?().a']
   for access in accesses
     for i,j in [1,2,3] #position can matter
       code =
@@ -570,3 +589,135 @@ test "Assignment to variables similar to helper functions", ->
 
   indexOf = [1, 2, 3]
   ok 2 in indexOf
+
+test "#4566: destructuring with nested default values", ->
+  {a: {b = 1}} = a: {}
+  eq 1, b
+
+  {c: {d} = {}} = c: d: 3
+  eq 3, d
+
+  {e: {f = 5} = {}} = {}
+  eq 5, f
+
+test "#4878: Compile error when using destructuring with a splat or expansion in an array", ->
+  arr = ['a', 'b', 'c', 'd']
+
+  f1 = (list) ->
+    [first, ..., last] = list
+
+  f2 = (list) ->
+    [first..., last] = list
+
+  f3 = (list) ->
+    ([first, ...] = list); first
+
+  f4 = (list) ->
+    ([first, rest...] = list); rest
+
+  arrayEq f1(arr), arr
+  arrayEq f2(arr), arr
+  arrayEq f3(arr), 'a'
+  arrayEq f4(arr), ['b', 'c', 'd']
+
+  foo = (list) ->
+    ret =
+      if list?.length > 0
+        [first, ..., last] = list
+        [first, last]
+      else
+        []
+
+  arrayEq foo(arr), ['a', 'd']
+
+  bar = (list) ->
+    ret =
+      if list?.length > 0
+        [first, rest...] = list
+        [first, rest]
+      else
+        []
+
+  arrayEq bar(arr), ['a', ['b', 'c', 'd']]
+
+test "destructuring assignment with an empty array in object", ->
+  obj =
+    a1: [1, 2]
+    b1: 3
+
+  {a1:[], b1} = obj
+  eq 'undefined', typeof a1
+  eq b1, 3
+
+  obj =
+    a2:
+      b2: [1, 2]
+    c2: 3
+
+  {a2: {b2:[]}, c2} = obj
+  eq 'undefined', typeof b2
+  eq c2, 3
+
+test "#5004: array destructuring with accessors", ->
+  obj =
+    arr: ['a', 'b', 'c', 'd']
+    list: {}
+    f1: ->
+      [@first, @rest...] = @arr
+    f2: ->
+      [@second, @third..., @last] = @rest
+    f3: ->
+      [@list.a, @list.middle..., @list.d] = @arr
+
+  obj.f1()
+  eq obj.first, 'a'
+  arrayEq obj.rest, ['b', 'c', 'd']
+
+  obj.f2()
+  eq obj.second, 'b'
+  arrayEq obj.third, ['c']
+  eq obj.last, 'd'
+
+  obj.f3()
+  eq obj.list.a, 'a'
+  arrayEq obj.list.middle, ['b', 'c']
+  eq obj.list.d, 'd'
+
+  [obj.list.middle..., d] = obj.arr
+  eq d, 'd'
+  arrayEq obj.list.middle, ['a', 'b', 'c']
+
+test "#4884: destructured object splat", ->
+  [{length}...] = [1, 2, 3]
+  eq length, 3
+  [{length: len}...] = [1, 2, 3]
+  eq len, 3
+  [{length}..., three] = [1, 2, 3]
+  eq length, 2
+  eq three, 3
+  [{length: len}..., three] = [1, 2, 3]
+  eq len, 2
+  eq three, 3
+  x = [{length}..., three] = [1, 2, 3]
+  eq length, 2
+  eq three, 3
+  eq x[2], 3
+  x = [{length: len}..., three] = [1, 2, 3]
+  eq len, 2
+  eq three, 3
+  eq x[2], 3
+
+test "#4884: destructured array splat", ->
+  [[one, two, three]...] = [1, 2, 3]
+  eq one, 1
+  eq two, 2
+  eq three, 3
+  [[one, two]..., three] = [1, 2, 3]
+  eq one, 1
+  eq two, 2
+  eq three, 3
+  x = [[one, two]..., three] = [1, 2, 3]
+  eq one, 1
+  eq two, 2
+  eq three, 3
+  eq x[2], 3

@@ -303,25 +303,16 @@ test "#2567: Optimization of negated existential produces correct result", ->
 
 test "#2508: Existential access of the prototype", ->
   eq NonExistent?::nothing, undefined
+  eq(
+    NonExistent
+    ?::nothing
+    undefined
+  )
   ok Object?::toString
-
-test "power operator", ->
-  eq 27, 3 ** 3
-
-test "power operator has higher precedence than other maths operators", ->
-  eq 55, 1 + 3 ** 3 * 2
-  eq -4, -2 ** 2
-  eq false, !2 ** 2
-  eq 0, (!2) ** 2
-  eq -2, ~1 ** 5
-
-test "power operator is right associative", ->
-  eq 2, 2 ** 1 ** 3
-
-test "power operator compound assignment", ->
-  a = 2
-  a **= 3
-  eq 8, a
+  ok(
+    Object
+    ?::toString
+  )
 
 test "floor division operator", ->
   eq 2, 7 // 3
@@ -330,7 +321,7 @@ test "floor division operator", ->
 
 test "floor division operator compound assignment", ->
   a = 7
-  a //= 2
+  a //= 1 + 1
   eq 3, a
 
 test "modulo operator", ->
@@ -436,3 +427,27 @@ test "#3598: Unary + and - coerce the operand once when it is an identifier", ->
     ok ~a in [0, -2]
   assertOneCoercion (a) ->
     ok a / 2 in [0, 0.5]
+
+test "'new' target", ->
+  nonce = {}
+  ctor  = -> nonce
+
+  eq (new ctor), nonce
+  eq (new ctor()), nonce
+
+  ok new class
+
+  ctor  = class
+  ok (new ctor) instanceof ctor
+  ok (new ctor()) instanceof ctor
+
+  # Force an executable class body
+  ctor  = class then a = 1
+  ok (new ctor) instanceof ctor
+
+  get   = -> ctor
+  ok (new get()) not instanceof ctor
+  ok (new (get())()) instanceof ctor
+
+  # classes must be called with `new`. In this case `new` applies to `get` only
+  throws -> new get()()
