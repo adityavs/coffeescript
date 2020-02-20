@@ -54,6 +54,20 @@ sources = {}
 # Also save source maps if generated, in form of `(source)`: [`(source map)`].
 sourceMaps = {}
 
+# This is exported to enable an external module to implement caching of
+# compilation results. When the compiled js source is loaded from cache, the
+# original coffee code should be added with this method in order to enable the
+# Error.prepareStackTrace below to correctly adjust the stack trace for the
+# corresponding file (the source map will be generated on demand).
+exports.registerCompiled = registerCompiled = (filename, source, sourcemap) ->
+
+  sources[filename] ?= []
+  sources[filename].push source
+
+  if sourcemap?
+    sourceMaps[filename] ?= []
+    sourceMaps[filename].push sourcemap
+
 # Compile CoffeeScript code to JavaScript, using the Coffee/Jison compiler.
 #
 # If `options.sourceMap` is specified, then `options.filename` must also be
@@ -75,8 +89,6 @@ exports.compile = compile = withPrettyErrors (code, options = {}) ->
 
   checkShebangLine filename, code
 
-  sources[filename] ?= []
-  sources[filename].push code
   map = new SourceMap if generateSourceMap
 
   tokens = lexer.tokenize code, options
@@ -94,7 +106,28 @@ exports.compile = compile = withPrettyErrors (code, options = {}) ->
         options.bare = yes
         break
 
-  fragments = parser.parse(tokens).compileToFragments options
+  nodes = parser.parse tokens
+  # If all that was requested was a POJO representation of the nodes, e.g.
+  # the abstract syntax tree (AST), we can stop now and just return that
+  # (after fixing the location data for the root/`File`»`Program` node,
+  # which might’ve gotten misaligned from the original source due to the
+  # `clean` function in the lexer).
+  if options.ast
+    nodes.allCommentTokens = helpers.extractAllCommentTokens tokens
+    sourceCodeNumberOfLines = (code.match(/\r?\n/g) or '').length + 1
+    sourceCodeLastLine = /.*$/.exec(code)[0] # `.*` matches all but line break characters.
+    ast = nodes.ast options
+    range = [0, code.length]
+    ast.start = ast.program.start = range[0]
+    ast.end = ast.program.end = range[1]
+    ast.range = ast.program.range = range
+    ast.loc.start = ast.program.loc.start = {line: 1, column: 0}
+    ast.loc.end.line = ast.program.loc.end.line = sourceCodeNumberOfLines
+    ast.loc.end.column = ast.program.loc.end.column = sourceCodeLastLine.length
+    ast.tokens = tokens
+    return ast
+
+  fragments = nodes.compileToFragments options
 
   currentLine = 0
   currentLine += 1 if options.header
@@ -126,8 +159,6 @@ exports.compile = compile = withPrettyErrors (code, options = {}) ->
 
   if generateSourceMap
     v3SourceMap = map.generate options, code
-    sourceMaps[filename] ?= []
-    sourceMaps[filename].push map
 
   if options.transpile
     if typeof options.transpile isnt 'object'
@@ -158,6 +189,8 @@ exports.compile = compile = withPrettyErrors (code, options = {}) ->
     sourceURL = "//# sourceURL=#{options.filename ? 'coffeescript'}"
     js = "#{js}\n#{sourceMapDataURI}\n#{sourceURL}"
 
+  registerCompiled filename, code, map
+
   if options.sourceMap
     {
       js
@@ -175,10 +208,8 @@ exports.tokens = withPrettyErrors (code, options) ->
 # return the AST. You can then compile it by calling `.compile()` on the root,
 # or traverse it by using `.traverseChildren()` with a callback.
 exports.nodes = withPrettyErrors (source, options) ->
-  if typeof source is 'string'
-    parser.parse lexer.tokenize source, options
-  else
-    parser.parse source
+  source = lexer.tokenize source, options if typeof source is 'string'
+  parser.parse source
 
 # This file used to export these methods; leave stubs that throw warnings
 # instead. These methods have been moved into `index.coffee` to provide
@@ -195,6 +226,10 @@ lexer = new Lexer
 # thin wrapper around it, compatible with the Jison API. We can then pass it
 # directly as a “Jison lexer.”
 parser.lexer =
+  yylloc:
+    range: []
+  options:
+    ranges: yes
   lex: ->
     token = parser.tokens[@pos++]
     if token

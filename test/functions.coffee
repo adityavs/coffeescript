@@ -161,10 +161,10 @@ test "@-parameters: automatically assign an argument's value to a property of th
 
   # The argument should not be able to be referenced normally
   code = '((@prop) -> prop).call {}'
-  doesNotThrow -> CoffeeScript.compile code
+  doesNotThrowCompileError code
   throws (-> CoffeeScript.run code), ReferenceError
   code = '((@prop) -> _at_prop).call {}'
-  doesNotThrow -> CoffeeScript.compile code
+  doesNotThrowCompileError code
   throws (-> CoffeeScript.run code), ReferenceError
 
 test "@-parameters and splats with constructors", ->
@@ -291,8 +291,8 @@ test "#156: parameter lists with expansion", ->
     last
   eq 5, expandArguments 1, 2, 3, 4, 5
 
-  throws (-> CoffeeScript.compile "(..., a, b...) ->"), null, "prohibit expansion and a splat"
-  throws (-> CoffeeScript.compile "(...) ->"),          null, "prohibit lone expansion"
+  throwsCompileError "(..., a, b...) ->", null, null, "prohibit expansion and a splat"
+  throwsCompileError "(...) ->",          null, null, "prohibit lone expansion"
 
 test "#156: parameter lists with expansion in array destructuring", ->
   expandArray = (..., [..., last]) ->
@@ -320,10 +320,10 @@ test "variable definitions and splat", ->
   eq 0, b
 
 test "default values with function calls", ->
-  doesNotThrow -> CoffeeScript.compile "(x = f()) ->"
+  doesNotThrowCompileError "(x = f()) ->"
 
 test "arguments vs parameters", ->
-  doesNotThrow -> CoffeeScript.compile "f(x) ->"
+  doesNotThrowCompileError "f(x) ->"
   f = (g) -> g()
   eq 5, f (x) -> 5
 
@@ -493,3 +493,14 @@ test "#4657: destructured array parameters", ->
   result = f [1, 2, 3, 4]
   arrayEq result.a, [1, 2, 3]
   eq result.b, 4
+
+test "#5128: default parameters of function in binary operation", ->
+  foo = yes or (a, b = {}) -> null
+  eq foo, yes
+
+test "#5121: array end bracket after function glyph", ->
+  a = [->]
+  eq a.length, 1
+
+  b = [c: ->]
+  eq b.length, 1

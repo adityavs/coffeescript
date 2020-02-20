@@ -722,10 +722,10 @@ test "Empty lines between comments are preserved", ->
   }'''
 
 test "Block comment in an interpolated string", ->
-  eqJS '"a#{### Comment ###}b"', "`a${/* Comment */''}b`;"
-  eqJS '"a#{### 1 ###}b#{### 2 ###}c"', "`a${/* 1 */''}b${/* 2 */''}c`;"
+  eqJS '"a#{### Comment ###}b"', '`a${/* Comment */""}b`;'
+  eqJS '"a#{### 1 ###}b#{### 2 ###}c"', '`a${/* 1 */""}b${/* 2 */""}c`;'
 
-test "#4629: Block comment in CSX interpolation", ->
+test "#4629: Block comment in JSX interpolation", ->
   eqJS '<div>{### Comment ###}</div>', '<div>{/* Comment */}</div>;'
   eqJS '''
   <div>
@@ -1003,7 +1003,7 @@ test "#4706: Flow comments after class name", ->
   var Container;
 
   Container = class Container/*::<T> */ {
-    method() {
+    method/*::<U> */() {
       return true;
     }
 
@@ -1119,4 +1119,17 @@ test "#4756: Comment before ? operation", ->
     /* Comment */
     return (ref = this.foo) != null ? ref : 42;
   })();
+  '''
+
+test "#5241: Comment after :", ->
+  eqJS '''
+  return
+    a: # Comment
+      b: 1
+  ''', '''
+  return {
+    a: { // Comment
+      b: 1
+    }
+  };
   '''

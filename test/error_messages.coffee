@@ -4,11 +4,15 @@
 # Ensure that errors of different kinds (lexer, parser and compiler) are shown
 # in a consistent way.
 
+errCallback = (expectedErrorFormat) -> (err) ->
+  err.colorful = no
+  eq expectedErrorFormat, "#{err}"
+  yes
+assertErrorFormatNoAst = (code, expectedErrorFormat) ->
+  throws (-> CoffeeScript.run code), errCallback(expectedErrorFormat)
 assertErrorFormat = (code, expectedErrorFormat) ->
-  throws (-> CoffeeScript.run code), (err) ->
-    err.colorful = no
-    eq expectedErrorFormat, "#{err}"
-    yes
+  assertErrorFormatNoAst code, expectedErrorFormat
+  throws (-> CoffeeScript.compile code, ast: yes), errCallback(expectedErrorFormat)
 
 test "lexer errors formatting", ->
   assertErrorFormat '''
@@ -64,7 +68,7 @@ if require?
     fs.writeFileSync tempFile, 'foo in bar or in baz'
 
     try
-      assertErrorFormat """
+      assertErrorFormatNoAst """
         require '#{tempFile.replace /\\/g, '\\\\'}'
       """,
       """
@@ -88,7 +92,7 @@ if require?
 
     eq error.message, 'hello world'
     doesNotThrow(-> error.stack)
-    notEqual error.stack.toString().indexOf(filePath), -1
+    notEqual error.stack.toString().indexOf(filePath), -1, "Expected " + filePath + "in stack trace: " + error.stack.toString()
 
   test "#4418: stack traces for compiled files reference the correct line number", ->
     # The browser is already compiling other anonymous scripts (the tests)
@@ -485,6 +489,22 @@ test "octal escapes", ->
       #{b} \\01///
            ^\^^
   '''
+  # per #5211, also treat \0[8-9] as (disallowed) octal escapes
+  assertErrorFormat '''
+    "a\\0\\tb\\\\\\09c"
+  ''', '''
+    [stdin]:1:10: error: octal escape sequences are not allowed \\09
+    "a\\0\\tb\\\\\\09c"
+      \  \   \ \ ^\^^
+  '''
+  assertErrorFormat '''
+    ///a
+      #{b} \\08///
+  ''', '''
+    [stdin]:2:8: error: octal escape sequences are not allowed \\08
+      #{b} \\08///
+           ^\^^
+  '''
 
 test "#3795: invalid escapes", ->
   assertErrorFormat '''
@@ -599,7 +619,7 @@ test "invalid regex flags", ->
     ///a///ii
            ^^
   '''
-  doesNotThrow -> CoffeeScript.compile '/a/ymgi'
+  doesNotThrowCompileError '/a/ymgi'
 
 test "missing `)`, `}`, `]`", ->
   assertErrorFormat '''
@@ -855,6 +875,13 @@ test "invalid object keys", ->
     {a=2}
       ^
   '''
+  assertErrorFormat '''
+    @[a]: 1
+  ''', '''
+    [stdin]:1:1: error: invalid object key
+    @[a]: 1
+    ^^^^
+  '''
 
 test "invalid destructuring default target", ->
   assertErrorFormat '''
@@ -1095,7 +1122,7 @@ test "cannot export * without a module to export from", ->
   '''
 
 test "imports and exports must be top-level", ->
-  assertErrorFormat '''
+  assertErrorFormatNoAst '''
     if foo
       import { bar } from 'lib'
   ''', '''
@@ -1103,7 +1130,7 @@ test "imports and exports must be top-level", ->
       import { bar } from 'lib'
       ^^^^^^^^^^^^^^^^^^^^^^^^^
   '''
-  assertErrorFormat '''
+  assertErrorFormatNoAst '''
     foo = ->
       export { bar }
   ''', '''
@@ -1237,6 +1264,13 @@ test "cannot have `await` outside a function", ->
     [stdin]:1:1: error: await can only occur inside functions
     await 1
     ^^^^^^^
+  '''
+  assertErrorFormat '''
+    await return
+  ''', '''
+    [stdin]:1:1: error: await can only occur inside functions
+    await return
+    ^^^^^^^^^^^^
   '''
 
 test "indexes are not supported in for-from loops", ->
@@ -1378,6 +1412,13 @@ test "new with 'super'", ->
     [stdin]:1:34: error: Unsupported reference to 'super'
     class extends A then foo: -> new super()
                                      ^^^^^
+  '''
+
+test "'super' outside method", ->
+  assertErrorFormat 'super()', '''
+    [stdin]:1:1: error: cannot use super outside of an instance method
+    super()
+    ^^^^^
   '''
 
 test "getter keyword in object", ->
@@ -1578,17 +1619,17 @@ test "#4248: Unicode code point escapes", ->
       \    ^\^^^^^^^^^^^^^
   '''
 
-test "CSX error: non-matching tag names", ->
+test "JSX error: non-matching tag names", ->
   assertErrorFormat '''
     <div><span></div></span>
   ''',
   '''
-    [stdin]:1:7: error: expected corresponding CSX closing tag for span
+    [stdin]:1:7: error: expected corresponding JSX closing tag for span
     <div><span></div></span>
           ^^^^
   '''
 
-test "CSX error: bare expressions not allowed", ->
+test "JSX error: bare expressions not allowed", ->
   assertErrorFormat '''
     <div x=3 />
   ''',
@@ -1598,7 +1639,7 @@ test "CSX error: bare expressions not allowed", ->
            ^
   '''
 
-test "CSX error: unescaped opening tag angle bracket disallowed", ->
+test "JSX error: unescaped opening tag angle bracket disallowed", ->
   assertErrorFormat '''
     <Person><<</Person>
   ''',
@@ -1608,7 +1649,7 @@ test "CSX error: unescaped opening tag angle bracket disallowed", ->
             ^^
   '''
 
-test "CSX error: ambiguous tag-like expression", ->
+test "JSX error: ambiguous tag-like expression", ->
   assertErrorFormat '''
     x = a <b > c
   ''',
@@ -1618,60 +1659,60 @@ test "CSX error: ambiguous tag-like expression", ->
              ^
   '''
 
-test 'CSX error: invalid attributes', ->
+test 'JSX error: invalid attributes', ->
   assertErrorFormat '''
     <div a="b" {props} />
   ''', '''
-    [stdin]:1:12: error: Unexpected token. Allowed CSX attributes are: id="val", src={source}, {props...} or attribute.
+    [stdin]:1:12: error: Unexpected token. Allowed JSX attributes are: id="val", src={source}, {props...} or attribute.
     <div a="b" {props} />
                ^^^^^^^
   '''
   assertErrorFormat '''
     <div a={b} {a:{b}} />
   ''', '''
-    [stdin]:1:12: error: Unexpected token. Allowed CSX attributes are: id="val", src={source}, {props...} or attribute.
+    [stdin]:1:12: error: Unexpected token. Allowed JSX attributes are: id="val", src={source}, {props...} or attribute.
     <div a={b} {a:{b}} />
                ^^^^^^^
   '''
   assertErrorFormat '''
     <div {"#{a}"} />
   ''', '''
-    [stdin]:1:6: error: Unexpected token. Allowed CSX attributes are: id="val", src={source}, {props...} or attribute.
+    [stdin]:1:6: error: Unexpected token. Allowed JSX attributes are: id="val", src={source}, {props...} or attribute.
     <div {"#{a}"} />
          ^^^^^^^^
   '''
   assertErrorFormat '''
     <div props... />
   ''', '''
-    [stdin]:1:11: error: Unexpected token. Allowed CSX attributes are: id="val", src={source}, {props...} or attribute.
+    [stdin]:1:11: error: Unexpected token. Allowed JSX attributes are: id="val", src={source}, {props...} or attribute.
     <div props... />
               ^^^
   '''
   assertErrorFormat '''
     <div {a:"b", props..., c:d()} />
   ''', '''
-    [stdin]:1:6: error: Unexpected token. Allowed CSX attributes are: id="val", src={source}, {props...} or attribute.
+    [stdin]:1:6: error: Unexpected token. Allowed JSX attributes are: id="val", src={source}, {props...} or attribute.
     <div {a:"b", props..., c:d()} />
          ^^^^^^^^^^^^^^^^^^^^^^^^
   '''
   assertErrorFormat '''
     <div {props..., a, b} />
   ''', '''
-    [stdin]:1:6: error: Unexpected token. Allowed CSX attributes are: id="val", src={source}, {props...} or attribute.
+    [stdin]:1:6: error: Unexpected token. Allowed JSX attributes are: id="val", src={source}, {props...} or attribute.
     <div {props..., a, b} />
          ^^^^^^^^^^^^^^^^
   '''
 
-test '#5034: CSX error: Adjacent JSX elements must be wrapped in an enclosing tag', ->
+test '#5034: JSX error: Adjacent JSX elements must be wrapped in an enclosing tag', ->
   assertErrorFormat '''
     render = -> (
       <Row>a</Row>
       <Row>b</Row>
     )
   ''', '''
-    [stdin]:3:4: error: Adjacent JSX elements must be wrapped in an enclosing tag
+    [stdin]:3:3: error: Adjacent JSX elements must be wrapped in an enclosing tag
       <Row>b</Row>
-       ^^^^^^^^^^^
+      ^^^^^^^^^^^^
   '''
   assertErrorFormat '''
     render = -> (
@@ -1680,9 +1721,9 @@ test '#5034: CSX error: Adjacent JSX elements must be wrapped in an enclosing ta
       <Row>b</Row>
     )
   ''', '''
-    [stdin]:4:4: error: Adjacent JSX elements must be wrapped in an enclosing tag
+    [stdin]:4:3: error: Adjacent JSX elements must be wrapped in an enclosing tag
       <Row>b</Row>
-       ^^^^^^^^^^^
+      ^^^^^^^^^^^^
   '''
 test 'Bound method called as callback before binding throws runtime error', ->
   class Base
@@ -1796,6 +1837,50 @@ test "#3199: error message for throw indented comprehension", ->
       ^
   '''
 
+test "#3199: error message for yield indented non-object", ->
+  assertErrorFormat '''
+    ->
+      yield
+        1
+  ''', '''
+    [stdin]:3:5: error: unexpected number
+        1
+        ^
+  '''
+
+test "#3199: error message for yield indented comprehension", ->
+  assertErrorFormat '''
+    ->
+      yield
+        x for x in [1, 2, 3]
+  ''', '''
+    [stdin]:3:5: error: unexpected identifier
+        x for x in [1, 2, 3]
+        ^
+  '''
+
+test "#3199: error message for await indented non-object", ->
+  assertErrorFormat '''
+    ->
+      await
+        1
+  ''', '''
+    [stdin]:3:5: error: unexpected number
+        1
+        ^
+  '''
+
+test "#3199: error message for await indented comprehension", ->
+  assertErrorFormat '''
+    ->
+      await
+        x for x in [1, 2, 3]
+  ''', '''
+    [stdin]:3:5: error: unexpected identifier
+        x for x in [1, 2, 3]
+        ^
+  '''
+
 test "#3098: suppressed newline should be unsuppressed by semicolon", ->
   assertErrorFormat '''
     a = ; 5
@@ -1862,4 +1947,58 @@ test "#3933: prevent implicit calls when cotrol flow is missing `THEN`", ->
     [stdin]:2:10: error: unexpected ->
       when a ->
              ^^
+  '''
+
+test "`new.target` outside of a function", ->
+  assertErrorFormat '''
+    new.target
+  ''', '''
+    [stdin]:1:1: error: new.target can only occur inside functions
+    new.target
+    ^^^^^^^^^^
+  '''
+
+test "`new.target` is only allowed meta property", ->
+  assertErrorFormat '''
+    -> new.something
+  ''', '''
+    [stdin]:1:4: error: the only valid meta property for new is new.target
+    -> new.something
+       ^^^^^^^^^^^^^
+  '''
+
+test "`new.target` cannot be assigned", ->
+  assertErrorFormat '''
+    ->
+      new.target = b
+  ''', '''
+    [stdin]:2:14: error: unexpected =
+      new.target = b
+                 ^
+  '''
+
+test "#4834: dynamic import requires exactly one argument", ->
+  assertErrorFormat '''
+    import()
+  ''', '''
+    [stdin]:1:1: error: import() requires exactly one argument
+    import()
+    ^^^^^^^^
+  '''
+
+  assertErrorFormat '''
+    import('x', {})
+  ''', '''
+    [stdin]:1:1: error: import() requires exactly one argument
+    import('x', {})
+    ^^^^^^^^^^^^^^^
+  '''
+
+test "#4834: dynamic import requires explicit call parentheses", ->
+  assertErrorFormat '''
+    promise = import 'foo'
+  ''', '''
+    [stdin]:1:23: error: unexpected end of input
+    promise = import 'foo'
+                          ^
   '''

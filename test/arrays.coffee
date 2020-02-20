@@ -115,6 +115,12 @@ test "array elisions nested destructuring", ->
   deepEqual d, {x:2}
   arrayEq w, [1,2,4]
 
+test "#5112: array elisions not detected inside strings", ->
+  arr = [
+    str: ", #{3}"
+  ]
+  eq arr[0].str, ', 3'
+
 # Splats in Array Literals
 
 test "array splat expansions with assignments", ->
@@ -287,3 +293,52 @@ test "for-from comprehensions over Array", ->
 
   array2 = (a + b for [a, b] from [[10, 20], [30, 40], [50, 60]] when a + b >= 70)
   ok array2.join(' ') is '70 110'
+
+test "#5201: simple indented elisions", ->
+  arr1 = [
+    ,
+    1,
+    2,
+    ,
+    ,
+    3,
+    4,
+    5,
+    6
+    ,
+    ,
+    8,
+    9,
+  ]
+  eq arr1.length, 12
+  eq arr1[5], 3
+  eq arr1[9], undefined
+
+  arr2 = [
+    ,
+    ,
+    1,
+    2,
+    ,
+    3,
+    ,
+    4,
+    5
+    6
+    ,
+    ,
+    ,
+  ]
+  eq arr2.length, 12
+  eq arr2[8], 5
+  eq arr2[1], undefined
+
+  arr3 = [
+    ,
+    ,
+    ,
+  ]
+  eq arr3.length, 3
+
+  arr4 = [, , ,]
+  eq arr4.length, 3

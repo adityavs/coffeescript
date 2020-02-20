@@ -15,8 +15,8 @@ test "#4798 destructuring of objects with splat within arrays", ->
 
 test "destructuring assignment with objects and splats: ES2015", ->
   obj = {a: 1, b: 2, c: 3, d: 4, e: 5}
-  throws (-> CoffeeScript.compile "{a, r..., s...} = x"), null, "multiple rest elements are disallowed"
-  throws (-> CoffeeScript.compile "{a, r..., s..., b} = x"), null, "multiple rest elements are disallowed"
+  throwsCompileError "{a, r..., s...} = x", null, null, "multiple rest elements are disallowed"
+  throwsCompileError "{a, r..., s..., b} = x", null, null, "multiple rest elements are disallowed"
   prop = "b"
   {a, b, r...} = obj
   eq a, 1
@@ -418,3 +418,49 @@ test "#4673: complex destructured object spread variables", ->
   g = ({@y...}) ->
     eq @y.b, 1
   g b: 1
+
+test "#4834: dynamic import can technically be object spread", ->
+  eqJS """
+    x = {...import('module')}
+  """,
+  """
+    var x;
+
+    x = {...import('module')};
+  """
+
+test "#5168: allow indented property index", ->
+  a = b: c: 3
+
+  eq 3, {
+    ...a[
+      if yes
+        'b'
+      else
+        'c'
+    ]
+  }.c
+
+test "#5291: soaks/prototype shorthands in object spread variables", ->
+  withPrototype =
+    prototype:
+      b: {c: 1}
+  eq {withPrototype::b...}.c, 1
+  eq {...withPrototype::b}.c, 1
+
+  withSoak =
+    b:
+      c: 2
+  eq {withSoak?.b...}.c, 2
+  eq {...withSoak?.b}.c, 2
+
+  soakedCall = ->
+    b:
+      c: 3
+  eq {soakedCall?().b...}.c, 3
+  eq {...soakedCall?().b}.c, 3
+
+  assignToPrototype =
+    prototype: {}
+  {...assignToPrototype::b} = c: 4
+  eq assignToPrototype::b.c, 4
